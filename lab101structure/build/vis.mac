@@ -1,0 +1,73 @@
+# vis.mac
+# 适用于当前 STL 单结构几何，保留轨迹显示
+
+# 打开默认可视化窗口
+/vis/open
+
+# 初始化阶段先关闭自动刷新，减少显示负担
+/vis/viewer/set/autoRefresh false
+/vis/verbose errors
+
+# 画几何
+/vis/drawVolume
+
+# 视角
+/vis/viewer/set/viewpointThetaPhi 120 150
+/vis/viewer/set/lightsVector -1 0 0
+
+# 显示风格
+/vis/viewer/set/style surface
+/vis/viewer/set/auxiliaryEdge true
+/vis/viewer/set/lineSegmentsPerCircle 100
+
+# 只把 World 设为不可见，方便看 STL
+/vis/geometry/set/visibility World 0 false
+
+# 坐标轴，方便判断原点和方向
+/vis/scene/add/axes 0 0 0 20 cm
+
+# --------------------------------
+# 轨迹设置
+# --------------------------------
+# 显式保存轨迹
+/tracking/storeTrajectory 1
+
+# 在每个事件结束时显示轨迹
+/vis/scene/add/trajectories smooth
+
+# 只保留一种轨迹着色方式：按粒子类型
+/vis/modeling/trajectories/create/drawByParticleID
+
+# 如需看每一步的点，后面稳定后再打开这两句
+#/vis/modeling/trajectories/drawByParticleID-0/default/setDrawStepPts true
+#/vis/modeling/trajectories/drawByParticleID-0/default/setStepPtsSize 2
+
+# 如果想指定颜色，可以后面再打开
+#/vis/modeling/trajectories/list
+#/vis/modeling/trajectories/drawByParticleID-0/set gamma green
+#/vis/modeling/trajectories/drawByParticleID-0/set e- red
+#/vis/modeling/trajectories/drawByParticleID-0/set e+ blue
+#/vis/modeling/trajectories/drawByParticleID-0/set proton yellow
+
+# 不累积所有事件，避免场景越来越重
+#/vis/scene/endOfEventAction accumulate
+
+# --------------------------------
+# 简单装饰
+# --------------------------------
+/vis/set/textColour green
+/vis/set/textLayout right
+/vis/scene/add/text2D 0.9 -.9 24 ! ! 100mK STL geometry
+/vis/set/textLayout
+/vis/set/textColour
+
+/vis/scene/add/scale
+/vis/scene/add/eventID
+/vis/scene/add/date
+
+# 恢复自动刷新
+/vis/viewer/set/autoRefresh true
+/vis/verbose warnings
+
+# 刷新显示
+/vis/viewer/refresh

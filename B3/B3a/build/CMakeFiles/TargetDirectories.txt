@@ -1,0 +1,3 @@
+/home/chao/geant4/workdir/B3/B3a/build/CMakeFiles/exampleB3a.dir
+/home/chao/geant4/workdir/B3/B3a/build/CMakeFiles/edit_cache.dir
+/home/chao/geant4/workdir/B3/B3a/build/CMakeFiles/rebuild_cache.dir

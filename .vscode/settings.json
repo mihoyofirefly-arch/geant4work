@@ -1,0 +1,4 @@
+{
+    "cmake.sourceDirectory": "/home/chao/geant4/workdir/B1try",
+    "python-envs.defaultEnvManager": "ms-python.python:system"
+}
