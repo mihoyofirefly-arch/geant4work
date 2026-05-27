@@ -29,6 +29,8 @@
 
 #include "DetectorConstruction.hh"
 
+#include "CADMesh.hh"
+
 #include "G4Box.hh"
 #include "G4Colour.hh"
 #include "G4Cons.hh"
@@ -49,6 +51,8 @@
 
 #include <array>
 #include <cmath>
+#include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -290,6 +294,54 @@ namespace
     }
     return pts;
   }
+
+  G4ThreeVector GetAsciiStlCenter(const G4String& path)
+  {
+    std::ifstream input(path);
+    if (!input) {
+      G4Exception("DetectorConstruction::GetAsciiStlCenter",
+                  "StlOpenError",
+                  FatalException,
+                  ("Cannot open STL file: " + path).c_str());
+    }
+
+    G4double minX = std::numeric_limits<G4double>::max();
+    G4double minY = std::numeric_limits<G4double>::max();
+    G4double minZ = std::numeric_limits<G4double>::max();
+    G4double maxX = std::numeric_limits<G4double>::lowest();
+    G4double maxY = std::numeric_limits<G4double>::lowest();
+    G4double maxZ = std::numeric_limits<G4double>::lowest();
+
+    G4String token;
+    G4bool foundVertex = false;
+    while (input >> token) {
+      if (token != "vertex") continue;
+
+      G4double x = 0.0;
+      G4double y = 0.0;
+      G4double z = 0.0;
+      input >> x >> y >> z;
+
+      minX = std::min(minX, x);
+      minY = std::min(minY, y);
+      minZ = std::min(minZ, z);
+      maxX = std::max(maxX, x);
+      maxY = std::max(maxY, y);
+      maxZ = std::max(maxZ, z);
+      foundVertex = true;
+    }
+
+    if (!foundVertex) {
+      G4Exception("DetectorConstruction::GetAsciiStlCenter",
+                  "StlVertexError",
+                  FatalException,
+                  ("No vertices found in STL file: " + path).c_str());
+    }
+
+    return G4ThreeVector(0.5 * (minX + maxX),
+                         0.5 * (minY + maxY),
+                         0.5 * (minZ + maxZ));
+  }
 }
 
 DetectorConstruction::DetectorConstruction() = default;
@@ -313,213 +365,14 @@ void DetectorConstruction::DefineMaterials()
 
 G4VSolid* DetectorConstruction::BuildColdPlateSolid()
 {
-  const ColdPlateDims D{};
+  const G4String stlPath = "models/Al.STL";
+  const auto stlCenter = GetAsciiStlCenter(stlPath);
 
-  // 基体圆盘
-  auto* body = new G4Tubs("ColdPlateBody",
-                          0.0,
-                          0.5 * D.outerDiameter,
-                          0.5 * D.totalThickness,
-                          0.0,
-                          360.0 * deg);
+  auto mesh = CADMesh::TessellatedMesh::FromSTL(stlPath);
+  mesh->SetScale(mm);
+  mesh->SetOffset(-stlCenter * mm);
 
-  // 汇总所有减材体
-  auto* cuts = new G4MultiUnion("ColdPlateCuts");
-
-  // ---------------------------
-  // 全局浅台阶（来自 sheet 2 剖视 B-B）
-  // ---------------------------
-  AddBlindTube(cuts, "GlobalRelief",
-               D.totalThickness,
-               {0.0, 0.0, D.globalReliefDiameter, D.globalReliefDepth, false});
-
-  // ---------------------------
-  // 主大孔与中心孔
-  // ---------------------------
-  // 左右两个最大孔
-  AddCounterboredHole(cuts, "BigHole_L",
-                      D.totalThickness,
-                      {-D.bigPairCenterX, 0.0,
-                       D.bigPairThroughD,
-                       D.bigPairPlusFaceD, D.bigPairPlusFaceDepth,
-                       D.bigPairMinusFaceD, D.bigPairMinusFaceDepth});
-
-  AddCounterboredHole(cuts, "BigHole_R",
-                      D.totalThickness,
-                      {+D.bigPairCenterX, 0.0,
-                       D.bigPairThroughD,
-                       D.bigPairPlusFaceD, D.bigPairPlusFaceDepth,
-                       D.bigPairMinusFaceD, D.bigPairMinusFaceDepth});
-
-  // 上下两个中孔
-  AddCounterboredHole(cuts, "AxialHole_T",
-                      D.totalThickness,
-                      {0.0, +D.axialPairCenterY,
-                       D.axialPairThroughD,
-                       D.axialPairPlusFaceD, D.axialPairPlusFaceDepth,
-                       D.axialPairMinusFaceD, D.axialPairMinusDepth});
-
-  AddCounterboredHole(cuts, "AxialHole_B",
-                      D.totalThickness,
-                      {0.0, -D.axialPairCenterY,
-                       D.axialPairThroughD,
-                       D.axialPairPlusFaceD, D.axialPairPlusFaceDepth,
-                       D.axialPairMinusFaceD, D.axialPairMinusDepth});
-
-  // 四个对角中孔
-  const std::array<G4ThreeVector, 4> diagCenters = {
-    G4ThreeVector(+D.diagPairCenter, +D.diagPairCenter, 0.0),
-    G4ThreeVector(-D.diagPairCenter, +D.diagPairCenter, 0.0),
-    G4ThreeVector(-D.diagPairCenter, -D.diagPairCenter, 0.0),
-    G4ThreeVector(+D.diagPairCenter, -D.diagPairCenter, 0.0)
-  };
-
-  for (std::size_t i = 0; i < diagCenters.size(); ++i)
-  {
-    AddCounterboredHole(cuts, "DiagHole_" + std::to_string(i),
-                        D.totalThickness,
-                        {diagCenters[i].x(), diagCenters[i].y(),
-                         D.diagPairThroughD,
-                         D.diagPairPlusFaceD, D.diagPairPlusFaceDepth,
-                         D.diagPairMinusFaceD, D.diagPairMinusDepth});
-  }
-
-  // 中心孔
-  AddCounterboredHole(cuts, "CenterHole",
-                      D.totalThickness,
-                      {0.0, 0.0,
-                       D.centerThroughD,
-                       D.centerPlusFaceD, D.centerPlusFaceDepth,
-                       D.centerMinusFaceD, D.centerMinusDepth});
-
-  // ---------------------------
-  // 外圈 12x M8x10（sheet 2）
-  // 说明：线程等效成盲圆柱孔；若你更偏向底孔，可把 8 改成 6.8
-  // ---------------------------
-  for (const auto& p : RingPoints(D.outerM8PCD, D.outerM8Count, D.outerM8StartAngle))
-  {
-    AddBlindTube(cuts, "OuterM8Blind",
-                 D.totalThickness,
-                 {p.x(), p.y(), D.outerM8NominalD, D.outerM8Depth, true});
-  }
-
-  // 外圈 4x M8x16（sheet 2 左视）
-  for (const auto& p : RingPoints(D.outerM8x4PCD, D.outerM8x4Count, D.outerM8x4StartAngle))
-  {
-    AddBlindTube(cuts, "OuterM8BlindDeep",
-                 D.totalThickness,
-                 {p.x(), p.y(), D.outerM8x4NominalD, D.outerM8x4Depth, true});
-  }
-
-  // 外圈 12x Ø12 贯穿孔
-  for (const auto& p : RingPoints(D.outerD12PCD, D.outerD12Count, D.outerD12StartAngle))
-  {
-    AddThroughTube(cuts, "OuterD12Through",
-                   D.totalThickness,
-                   {p.x(), p.y(), D.outerD12});
-  }
-
-  // ---------------------------
-  // 近中心可清晰辨认的一批 M6 / M5 / M10 小孔
-  // 这些点位取自 sheet 7 / 8 中最清晰的一部分。
-  // ---------------------------
-  const std::vector<BlindHoleSpec> m6Holes = {
-    // 竖向一列
-    {   0.0*mm, +240.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, -240.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, +265.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, -265.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, +290.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, -290.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, +315.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    {   0.0*mm, -315.0*mm, 6.0*mm, D.m6BlindDepth, true },
-
-    // 中心水平附近可读点
-    { +85.0*mm,  0.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    { -85.0*mm,  0.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    { +50.0*mm, +85.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    { -50.0*mm, +85.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    { +50.0*mm, -85.0*mm, 6.0*mm, D.m6BlindDepth, true },
-    { -50.0*mm, -85.0*mm, 6.0*mm, D.m6BlindDepth, true }
-  };
-
-  for (const auto& h : m6Holes)
-    AddBlindTube(cuts, "M6Blind", D.totalThickness, h);
-
-  const std::vector<BlindHoleSpec> m5Holes = {
-    // sheet 7 右图中最明确的一圈
-    { +25.0*mm, +305.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -25.0*mm, +305.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { +25.0*mm, -305.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -25.0*mm, -305.0*mm, 5.0*mm, D.m5BlindDepth, true },
-
-    { +143.1*mm, +255.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -143.1*mm, +255.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { +143.1*mm, -255.0*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -143.1*mm, -255.0*mm, 5.0*mm, D.m5BlindDepth, true },
-
-    { +257.2*mm, +107.5*mm, 5.0*mm, D.m5BlindDepth, true },
-    { +257.2*mm, -107.5*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -257.2*mm, +107.5*mm, 5.0*mm, D.m5BlindDepth, true },
-    { -257.2*mm, -107.5*mm, 5.0*mm, D.m5BlindDepth, true }
-  };
-
-  for (const auto& h : m5Holes)
-    AddBlindTube(cuts, "M5Blind", D.totalThickness, h);
-
-  // 若你想继续把 sheet 7 / 8 的所有 M5/M6 坐标补满，
-  // 直接在上面两个 vector 继续追加即可。
-
-  // ---------------------------
-  // M10 局部孔（来自 sheet 5，可清晰辨认的一组）
-  // ---------------------------
-  const std::vector<BlindHoleSpec> m10Holes = {
-    { +286.4*mm, +118.0*mm, 10.0*mm, D.m10BlindDepth, true },
-    { +261.45*mm, +166.56*mm, 10.0*mm, D.m10BlindDepth, true },
-    { +230.0*mm, +209.43*mm, 10.0*mm, D.m10BlindDepth, true },
-
-    { +286.4*mm, -118.0*mm, 10.0*mm, D.m10BlindDepth, true },
-    { +261.45*mm, -166.56*mm, 10.0*mm, D.m10BlindDepth, true },
-    { +230.0*mm, -209.43*mm, 10.0*mm, D.m10BlindDepth, true }
-  };
-
-  for (const auto& h : m10Holes)
-    AddBlindTube(cuts, "M10Blind", D.totalThickness, h);
-
-  // ---------------------------
-  // A-F 类局部 relief pocket 的高保真近似
-  // 这里不做 spline/真实倒圆，而是用“三叶 pocket + 浅圆坑”近似，
-  // 对 Geant4 中的质量分布与通道遮挡已相当接近。
-  // ---------------------------
-  const std::vector<PocketSpec> pockets = {
-    // sheet 4 右上 A/B/C 一组
-    { +285.0*mm, +205.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  {  10.0, 130.0, 250.0 } },
-    { +240.0*mm, +120.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  { -20.0, 100.0, 220.0 } },
-    { +240.0*mm, -120.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  {  20.0, 140.0, 260.0 } },
-
-    // 180 度镜像
-    { -285.0*mm, -205.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  { 190.0, 310.0,  70.0 } },
-    { -240.0*mm, -120.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  { 160.0, 280.0,  40.0 } },
-    { -240.0*mm, +120.0*mm, 9.0*mm, 5.0*mm, 18.0*mm, D.pocketDepthMedium, true,  { 200.0, 320.0,  80.0 } },
-
-    // sheet 5 的 E/F 一组浅 pocket
-    { +300.0*mm, +100.0*mm, 12.0*mm, 6.0*mm, 23.0*mm, D.pocketDepthShallow, true, {  15.0, 135.0, 255.0 } },
-    { +300.0*mm, -100.0*mm, 12.0*mm, 6.0*mm, 23.0*mm, D.pocketDepthShallow, true, { -15.0, 105.0, 225.0 } }
-  };
-
-  for (std::size_t i = 0; i < pockets.size(); ++i)
-  {
-    AddTriLobePocket(cuts,
-                     "Pocket_" + std::to_string(i),
-                     D.totalThickness,
-                     pockets[i]);
-  }
-
-  // 必须先 voxelize，再做总减法
-  cuts->Voxelize();
-
-  auto* finalSolid = new G4SubtractionSolid("ColdPlateSolid", body, cuts);
-  return finalSolid;
+  return mesh->GetSolid();
 }
 
 G4VPhysicalVolume* DetectorConstruction::Construct()
@@ -527,7 +380,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
   DefineMaterials();
 
   // World
-  auto* worldSolid = new G4Box("World", 1000.0*mm, 1000.0*mm, 1000.0*mm);
+  auto* worldSolid = new G4Box("World", 4000.0*mm, 4000.0*mm, 4000.0*mm);
   auto* worldLV    = new G4LogicalVolume(worldSolid, fWorldMat, "WorldLV");
   auto* worldPV    = new G4PVPlacement(nullptr,
                                        G4ThreeVector(),
@@ -539,9 +392,9 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
                                        true);
 
   // Cold plate (single overall part)
-auto* plateSolid = BuildColdPlateSolid();
-auto* plateLV    = new G4LogicalVolume(plateSolid, fPlateMat, "ColdPlateLV");
-fScoringVolume   = plateLV;
+  auto* plateSolid = BuildColdPlateSolid();
+  auto* plateLV    = new G4LogicalVolume(plateSolid, fPlateMat, "ColdPlateLV");
+  fScoringVolume   = plateLV;
 
   new G4PVPlacement(nullptr,
                     G4ThreeVector(),

@@ -45,3 +45,10 @@ foreach(_script ${EXAMPLEB1_SCRIPTS})
     COPYONLY
     )
 endforeach()
+
+file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/models)
+configure_file(
+  ${PROJECT_SOURCE_DIR}/models/Al.STL
+  ${PROJECT_BINARY_DIR}/models/Al.STL
+  COPYONLY
+  )

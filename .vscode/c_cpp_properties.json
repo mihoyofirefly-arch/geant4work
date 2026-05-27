@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/home/chao/geant4/install/include/Geant4"
+                "/home/chao/geant4/install/include/Geant4",
+                "${workspaceFolder}/LMO2x2/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
